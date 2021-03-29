@@ -191,3 +191,55 @@ train = new_train %>%
 
 na_idx = train %>% apply(1, function(x) any(is.na(x)))
 train %>% filter(na_idx) %>% View()
+
+############# 3-6. Baseline ################
+# Outlier 파악
+train %>%
+  gather(key = 'Variable', value = 'Count', !c(DateTime,페이지뷰)) %>% 
+  ggplot(aes(x=Variable,y=Count,fill = Variable))+geom_boxplot()
+
+# baseline_model (NA를 0으로 대체 후 선형회귀) 
+## 기본 모형 r-square가 꽤나 높음 (0.8~0.9)
+base_train = train
+base_train[is.na(base_train)] = 0
+base_user = lm(사용자~.-세션-신규방문자-페이지뷰, data= base_train)
+base_session = lm(세션~.-사용자-신규방문자-페이지뷰, data= base_train)
+base_newbie = lm(신규방문자~.-사용자-세션-페이지뷰, data= base_train)
+base_pageview = lm(페이지뷰~.-사용자-세션-신규방문자, data= base_train)
+
+summary(base_user)
+summary(base_session)
+summary(base_newbie)
+summary(base_pageview)
+
+par(mfrow=c(2,2))
+plot(base_user)
+plot(base_session)
+plot(base_newbie)
+plot(base_pageview)
+
+# 대부분의 변수가 포아송분포를 따르는 것으로 보임
+ggpairs(train[-1],
+        diag = list(continuous = wrap('densityDiag', size=1, colour='tomato')),
+        lower = list(continuous = wrap("smooth", alpha = 0.3, size=0.8, colour='tomato')))
+
+ggcorr(train[-1],nbreaks = 10,label=T, palette = 'RdBu', label_color = 'white', label_size = 5)
+
+# gam_plot 확인하여 Y와 X의 관계 확인
+## User : 총방문횟수, 방문자수, 제출유저수는 선형
+
+gam_user = gam(사용자~s(총방문횟수,5)+s(방문자수,5)+s(총제출횟수,5)+s(제출팀수,5)+s(제출유저수,5)+s(개최대회수,5)+s(참여가중개최대회수,5)+s(아이디생성개수,5), data=train)
+par(mfrow=c(2,4))
+plot(gam_user)
+str(train)
+
+# NA파악
+## 총방문횟수, 방문자수 (20180909~20180922)
+##총제출횟수, 제출팀수, 제출유저수 ()
+# 아이디생성개수 NA는 모두 0으로 대체
+train %<>% replace_na(list(아이디생성개수 = 0))
+# 개최대회수가 0인 날 총제출횟수, 제출팀수, 제출유저수의 NA는 0으로 대체
+date_idx = train %>%
+  filter(개최대회수==0,is.na(제출팀수)) %>% 
+  pull(DateTime)
+train[train$DateTime %in% date_idx,c('총제출횟수', '제출팀수', '제출유저수')] = 0
